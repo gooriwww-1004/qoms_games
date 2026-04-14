@@ -8,7 +8,7 @@ LOGO_B64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABt
 NETLIFY = "https://qofms.netlify.app"
 
 MENU = [
-    {"id":"personality", "name":"성격 테스트",   "icon":"🧠", "live":True,  "url":f"{NETLIFY}/인덱스.html",   "h":900},
+    {"id":"personality", "name":"성격 테스트",   "icon":"🧠", "live":True,  "url":f"{NETLIFY}/index.html",   "h":900},
     {"id":"baccarat",    "name":"아라의 바카라",  "icon":"🎴", "live":True,  "url":f"{NETLIFY}/baccarat.html", "h":840},
     {"id":"slots",       "name":"밀레니엄 슬롯",  "icon":"🎰", "live":False, "url":"", "h":840},
     {"id":"blackjack",   "name":"블랙잭",         "icon":"♠️", "live":False, "url":"", "h":840},
