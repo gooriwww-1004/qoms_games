@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>아라의 바카라 v3.2 — Millennium Session</title>
+    <title>아라의 바카라 v3.3 — Millennium Session</title>
     <style>
         :root {
             --ms-bg: #0F0F23; --ms-deep: #1E1035; --ms-gold: #C9973A;
@@ -45,18 +45,14 @@
     // --- [2. 게임 로직 & 변수] ---
     const SUITS_LIST = ['♠','♦','♥','♣'];
     const VALS_LIST  = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
-    
     let myMoney = 1000000, cpuMoney = 50000000, currentLevel = 1;
     let gameState = 'bet', bets = { P:0, B:0, T:0, PP:0, BP:0 };
     let selChip = 100000, pCards = [], bCards = [], pSuits = [], bSuits = [];
     let msg = "베팅을 시작하세요", cheatCount = 0;
-    
-    // 승리 애니메이션 변수
     let winAnim = { active: false, cards: [], timer: 0 };
 
     function randCard() { return Math.floor(Math.random() * 13); }
     function randSuit() { return SUITS_LIST[Math.floor(Math.random()*4)]; }
-
     function bacScore(cards) {
         let total = 0;
         for (const v of cards) {
@@ -71,16 +67,21 @@
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        // 테이블 배경 (이미지 없으면 폴백)
+        // 버그 수정 ②: drawImage 안전 장치 (table_bg)
         drawRect(10, 130, 340, 400, '#1a1a3a', 15);
         const bg = assets.imgs.table_bg;
-        if(bg && bg.complete && bg.naturalWidth > 0) ctx.drawImage(bg, 10, 130, 340, 400);
+        try {
+            if(bg && bg.complete && bg.naturalWidth > 0) ctx.drawImage(bg, 10, 130, 340, 400);
+        } catch(e) {}
 
-        // CPU HUD
+        // CPU HUD & 안전 장치 (cpu_face)
         drawRect(10, 10, 340, 100, varColor('--ms-deep'), 10);
         drawTxt(`CPU: ${cpuMoney.toLocaleString()}`, 30, 50, 18, varColor('--ms-gold'), 'left');
         drawTxt(`LEVEL ${currentLevel}`, 30, 85, 14, '#888', 'left');
-        if(assets.imgs.cpu_face.complete) ctx.drawImage(assets.imgs.cpu_face, 250, 15, 80, 80);
+        const cpuFace = assets.imgs.cpu_face;
+        try {
+            if(cpuFace && cpuFace.complete && cpuFace.naturalWidth > 0) ctx.drawImage(cpuFace, 250, 15, 80, 80);
+        } catch(e) {}
 
         renderZones();
         if(gameState !== 'bet') renderCards();
@@ -110,16 +111,18 @@
 
         drawTxt(msg, 180, 480, 16, varColor('--ms-gold-lt'));
 
-        // 레벨업 오버레이
+        // 레벨업 오버레이 & 안전 장치 (levelup)
         if(gameState === 'levelup') {
             const lvImg = assets.imgs[`level_${currentLevel-1}`];
-            if(lvImg && lvImg.complete) ctx.drawImage(lvImg, 0, 0, 360, 800);
+            try {
+                if(lvImg && lvImg.complete && lvImg.naturalWidth > 0) ctx.drawImage(lvImg, 0, 0, 360, 800);
+            } catch(e) {}
             drawRect(0,0,360,800, 'rgba(0,0,0,0.6)');
             drawTxt("LEVEL UP!", 180, 350, 40, varColor('--ms-gold'));
             drawTxt("클릭하여 다음 레벨로", 180, 420, 18, '#FFF');
         }
 
-        // 승리 애니메이션 렌더링
+        // 승리 애니메이션 & 안전 장치 (winAnim)
         if(winAnim.active) {
             winAnim.timer--;
             winAnim.cards.forEach(c => {
@@ -128,10 +131,11 @@
                 ctx.translate(c.x + 35, c.y + 50); ctx.rotate(c.angle);
                 ctx.globalAlpha = Math.max(0, winAnim.timer / 60);
                 const img = assets.imgs[`card_${c.idx}`];
-                if(img && img.complete && img.naturalWidth > 0) ctx.drawImage(img, -35, -50, 70, 100);
-                else { drawRect(-35, -50, 70, 100, varColor('--ms-gold'), 6); }
+                try {
+                    if(img && img.complete && img.naturalWidth > 0) ctx.drawImage(img, -35, -50, 70, 100);
+                    else { drawRect(-35, -50, 70, 100, varColor('--ms-gold'), 6); }
+                } catch(e) { drawRect(-35, -50, 70, 100, varColor('--ms-gold'), 6); }
                 ctx.restore();
-                ctx.globalAlpha = 1;
             });
             if(winAnim.timer <= 0) winAnim.active = false;
         }
@@ -161,40 +165,24 @@
             gameState==='deal1' ? null : bSuits[i]));
     }
 
-    // 버그 수정: 카드 Canvas 직접 그리기
     function drawCard(x, y, val, suit) {
         if(val === null) {
             drawRect(x, y, 70, 100, varColor('--ms-royal'), 6);
             drawRect(x+4, y+4, 62, 92, varColor('--ms-deep'), 4);
-            ctx.fillStyle = varColor('--ms-gold');
-            ctx.font = 'bold 11px Pretendard'; ctx.textAlign = 'center';
+            ctx.fillStyle = varColor('--ms-gold'); ctx.font = 'bold 11px Pretendard'; ctx.textAlign = 'center';
             ctx.fillText('MS', x+35, y+48);
-            ctx.font = '9px Pretendard'; ctx.fillStyle = '#6B5F8A';
-            ctx.fillText('QUEEN', x+35, y+62);
+            ctx.font = '9px Pretendard'; ctx.fillStyle = '#6B5F8A'; ctx.fillText('QUEEN', x+35, y+62);
             return;
         }
-        const label = VALS_LIST[val];
-        const s = suit || '♠';
-        const isRed = (s === '♥' || s === '♦');
-        const textColor = isRed ? '#C41E3A' : '#1a1025';
-
-        drawRect(x, y, 70, 100, '#F8F4EC', 6);
-        drawRect(x+1, y+1, 68, 98, '#FFFFFF', 5);
-
+        const label = VALS_LIST[val], s = suit || '♠', isRed = (s === '♥' || s === '♦'), textColor = isRed ? '#C41E3A' : '#1a1025';
+        drawRect(x, y, 70, 100, '#F8F4EC', 6); drawRect(x+1, y+1, 68, 98, '#FFFFFF', 5);
         ctx.fillStyle = textColor; ctx.font = 'bold 13px Pretendard'; ctx.textAlign = 'left';
-        ctx.fillText(label, x+5, y+17);
-        ctx.font = '11px serif'; ctx.fillText(s, x+5, y+30);
-        ctx.font = '30px serif'; ctx.textAlign = 'center';
-        ctx.fillText(s, x+35, y+62);
-
-        ctx.save();
-        ctx.translate(x+65, y+95); ctx.rotate(Math.PI);
-        ctx.textAlign = 'left'; ctx.font = 'bold 13px Pretendard'; ctx.fillText(label, 0, 0);
-        ctx.font = '11px serif'; ctx.fillText(s, 0, 13);
-        ctx.restore();
+        ctx.fillText(label, x+5, y+17); ctx.font = '11px serif'; ctx.fillText(s, x+5, y+30);
+        ctx.font = '30px serif'; ctx.textAlign = 'center'; ctx.fillText(s, x+35, y+62);
+        ctx.save(); ctx.translate(x+65, y+95); ctx.rotate(Math.PI); ctx.textAlign = 'left';
+        ctx.font = 'bold 13px Pretendard'; ctx.fillText(label, 0, 0); ctx.font = '11px serif'; ctx.fillText(s, 0, 13); ctx.restore();
     }
 
-    // --- [4. 이벤트 & 타이밍 로직] ---
     function startDeal() {
         if(Object.values(bets).reduce((a,b)=>a+b) === 0) return;
         playSfx('deal'); gameState = 'deal1';
@@ -213,17 +201,13 @@
         if(winType === 'T') payout += bets.T * 8;
         if(pCards[0] === pCards[1]) payout += bets.PP * 11;
         if(bCards[0] === bCards[1]) payout += bets.BP * 11;
-
         if(payout > 0) {
-            playSfx('win');
-            winAnim.active = true; winAnim.timer = 60;
+            playSfx('win'); winAnim.active = true; winAnim.timer = 60;
             winAnim.cards = Array.from({length:5}, () => ({
-                idx: Math.floor(Math.random()*13),
-                x: Math.random()*280 + 40, y: 800,
+                idx: Math.floor(Math.random()*13), x: Math.random()*280 + 40, y: 800,
                 vy: -(Math.random()*12 + 8), rot: (Math.random()-0.5)*0.3, angle: 0
             }));
         } else playSfx('lose');
-
         myMoney += Math.floor(payout); cpuMoney -= Math.floor(payout);
         msg = `P:${ps} vs B:${bs} - ${winType==='P'?'PLAYER':winType==='B'?'BANKER':'TIE'} WIN!`;
         gameState = 'result';
@@ -250,7 +234,6 @@
     function drawRect(x,y,w,h,c,r=0){ctx.fillStyle=c;ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill();}
     function drawTxt(t,x,y,s,c,a='center'){ctx.fillStyle=c;ctx.font=`${s}px Pretendard`;ctx.textAlign=a;ctx.fillText(t,x,y);}
     function varColor(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
-
     canvas.addEventListener('touchstart', handleInput);
     canvas.addEventListener('mousedown', handleInput);
     draw();
