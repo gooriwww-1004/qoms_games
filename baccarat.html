@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>아라의 바카라 v3.2 — Millennium Session</title>
+    <style>
+        :root {
+            --ms-bg: #0F0F23; --ms-deep: #1E1035; --ms-gold: #C9973A;
+            --ms-gold-lt: #E8C46A; --ms-crimson: #8B1A2E; --ms-emerald: #1A6B4A;
+            --ms-royal: #3D2B6A; --ms-blue: #50A0FF; --ms-white: #E8E0F0;
+        }
+        body { margin: 0; background: #000; color: var(--ms-white); font-family: 'Pretendard', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; touch-action: none; }
+        #game-canvas { background: var(--ms-bg); width: 100%; max-width: 360px; height: 100vh; max-height: 800px; box-shadow: 0 0 30px rgba(0,0,0,0.5); cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<canvas id="game-canvas" width="360" height="800"></canvas>
+
+<script>
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+
+    // --- [1. 에셋 시스템] ---
+    const assets = { imgs: {}, sfx: {} };
+    function loadAsset(name, src, type = 'img') {
+        if(type === 'img') {
+            const img = new Image(); img.src = src;
+            assets.imgs[name] = img;
+        } else {
+            assets.sfx[name] = new Audio(src);
+        }
+    }
+
+    for(let i=0; i<13; i++) loadAsset(`card_${i}`, `card_${i}.png`);
+    loadAsset('card_back', 'card_back.png');
+    loadAsset('table_bg', 'table_bg.png');
+    loadAsset('cpu_face', 'cpu_face.png');
+    for(let i=1; i<=12; i++) loadAsset(`level_${i}`, `ara_level_${i}.png`);
+    ['chip', 'deal', 'btn', 'win', 'lose', 'levelup'].forEach(s => loadAsset(s, `sfx_${s}.wav`, 'audio'));
+
+    function playSfx(name) { if(assets.sfx[name]) assets.sfx[name].play().catch(()=>{}); }
+
+    // --- [2. 게임 로직 & 변수] ---
+    const SUITS_LIST = ['♠','♦','♥','♣'];
+    const VALS_LIST  = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+    
+    let myMoney = 1000000, cpuMoney = 50000000, currentLevel = 1;
+    let gameState = 'bet', bets = { P:0, B:0, T:0, PP:0, BP:0 };
+    let selChip = 100000, pCards = [], bCards = [], pSuits = [], bSuits = [];
+    let msg = "베팅을 시작하세요", cheatCount = 0;
+    
+    // 승리 애니메이션 변수
+    let winAnim = { active: false, cards: [], timer: 0 };
+
+    function randCard() { return Math.floor(Math.random() * 13); }
+    function randSuit() { return SUITS_LIST[Math.floor(Math.random()*4)]; }
+
+    function bacScore(cards) {
+        let total = 0;
+        for (const v of cards) {
+            if (v === 0) total += 1;
+            else if (v >= 9) total += 0;
+            else total += (v + 1);
+        }
+        return total % 10;
+    }
+
+    // --- [3. 렌더링 엔진] ---
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // 테이블 배경 (이미지 없으면 폴백)
+        drawRect(10, 130, 340, 400, '#1a1a3a', 15);
+        const bg = assets.imgs.table_bg;
+        if(bg && bg.complete && bg.naturalWidth > 0) ctx.drawImage(bg, 10, 130, 340, 400);
+
+        // CPU HUD
+        drawRect(10, 10, 340, 100, varColor('--ms-deep'), 10);
+        drawTxt(`CPU: ${cpuMoney.toLocaleString()}`, 30, 50, 18, varColor('--ms-gold'), 'left');
+        drawTxt(`LEVEL ${currentLevel}`, 30, 85, 14, '#888', 'left');
+        if(assets.imgs.cpu_face.complete) ctx.drawImage(assets.imgs.cpu_face, 250, 15, 80, 80);
+
+        renderZones();
+        if(gameState !== 'bet') renderCards();
+
+        // 하단 UI
+        drawRect(0, 620, 360, 180, '#0a0a1a');
+        const chips = [100000, 500000, 1000000, "ALL"];
+        chips.forEach((c, i) => {
+            const x = 50 + i * 85;
+            const active = selChip === c;
+            drawRect(x-38, 640, 76, 40, active ? varColor('--ms-gold') : '#1e1e3e', 20);
+            drawTxt(typeof c === 'number' ? c/10000+'만' : 'ALL', x, 666, 14, active?'#000':'#FFF');
+        });
+
+        drawTxt(`MY: ${myMoney.toLocaleString()}`, 180, 730, 22, '#FFF');
+        drawTxt("Queen of Millennium Session | qoms.netlify.app", 180, 785, 10, '#444');
+
+        if(gameState === 'bet') {
+            drawRect(130, 560, 100, 45, varColor('--ms-gold'), 10);
+            drawTxt("DEAL", 180, 590, 18, '#000');
+            drawRect(20, 565, 35, 35, varColor('--ms-crimson'), 17);
+            drawTxt("X", 37, 589, 16, '#FFF');
+        } else if(gameState === 'result') {
+            drawRect(130, 560, 100, 45, varColor('--ms-gold-lt'), 10);
+            drawTxt("NEXT", 180, 590, 18, '#000');
+        }
+
+        drawTxt(msg, 180, 480, 16, varColor('--ms-gold-lt'));
+
+        // 레벨업 오버레이
+        if(gameState === 'levelup') {
+            const lvImg = assets.imgs[`level_${currentLevel-1}`];
+            if(lvImg && lvImg.complete) ctx.drawImage(lvImg, 0, 0, 360, 800);
+            drawRect(0,0,360,800, 'rgba(0,0,0,0.6)');
+            drawTxt("LEVEL UP!", 180, 350, 40, varColor('--ms-gold'));
+            drawTxt("클릭하여 다음 레벨로", 180, 420, 18, '#FFF');
+        }
+
+        // 승리 애니메이션 렌더링
+        if(winAnim.active) {
+            winAnim.timer--;
+            winAnim.cards.forEach(c => {
+                c.y += c.vy; c.vy += 0.4; c.angle += c.rot;
+                ctx.save();
+                ctx.translate(c.x + 35, c.y + 50); ctx.rotate(c.angle);
+                ctx.globalAlpha = Math.max(0, winAnim.timer / 60);
+                const img = assets.imgs[`card_${c.idx}`];
+                if(img && img.complete && img.naturalWidth > 0) ctx.drawImage(img, -35, -50, 70, 100);
+                else { drawRect(-35, -50, 70, 100, varColor('--ms-gold'), 6); }
+                ctx.restore();
+                ctx.globalAlpha = 1;
+            });
+            if(winAnim.timer <= 0) winAnim.active = false;
+        }
+
+        requestAnimationFrame(draw);
+    }
+
+    function renderZones() {
+        const zones = [
+            {id:'PP', x:20, y:150, w:100, h:60, c:varColor('--ms-royal'), t:'P.PAIR'},
+            {id:'T', x:130, y:150, w:100, h:60, c:varColor('--ms-royal'), t:'TIE'},
+            {id:'BP', x:240, y:150, w:100, h:60, c:varColor('--ms-royal'), t:'B.PAIR'},
+            {id:'P', x:20, y:220, w:155, h:120, c:varColor('--ms-emerald'), t:'PLAYER'},
+            {id:'B', x:185, y:220, w:155, h:120, c:varColor('--ms-blue'), t:'BANKER'}
+        ];
+        zones.forEach(z => {
+            drawRect(z.x, z.y, z.w, z.h, z.c, 8);
+            drawTxt(z.t, z.x + z.w/2, z.y + 30, 14, '#FFF');
+            if(bets[z.id] > 0) drawTxt(bets[z.id].toLocaleString(), z.x + z.w/2, z.y + 70, 12, varColor('--ms-gold-lt'));
+        });
+    }
+
+    function renderCards() {
+        pCards.forEach((c,i) => drawCard(60+i*40, 250, c, pSuits[i]));
+        bCards.forEach((c,i) => drawCard(200+i*40, 250, 
+            gameState==='deal1' ? null : c, 
+            gameState==='deal1' ? null : bSuits[i]));
+    }
+
+    // 버그 수정: 카드 Canvas 직접 그리기
+    function drawCard(x, y, val, suit) {
+        if(val === null) {
+            drawRect(x, y, 70, 100, varColor('--ms-royal'), 6);
+            drawRect(x+4, y+4, 62, 92, varColor('--ms-deep'), 4);
+            ctx.fillStyle = varColor('--ms-gold');
+            ctx.font = 'bold 11px Pretendard'; ctx.textAlign = 'center';
+            ctx.fillText('MS', x+35, y+48);
+            ctx.font = '9px Pretendard'; ctx.fillStyle = '#6B5F8A';
+            ctx.fillText('QUEEN', x+35, y+62);
+            return;
+        }
+        const label = VALS_LIST[val];
+        const s = suit || '♠';
+        const isRed = (s === '♥' || s === '♦');
+        const textColor = isRed ? '#C41E3A' : '#1a1025';
+
+        drawRect(x, y, 70, 100, '#F8F4EC', 6);
+        drawRect(x+1, y+1, 68, 98, '#FFFFFF', 5);
+
+        ctx.fillStyle = textColor; ctx.font = 'bold 13px Pretendard'; ctx.textAlign = 'left';
+        ctx.fillText(label, x+5, y+17);
+        ctx.font = '11px serif'; ctx.fillText(s, x+5, y+30);
+        ctx.font = '30px serif'; ctx.textAlign = 'center';
+        ctx.fillText(s, x+35, y+62);
+
+        ctx.save();
+        ctx.translate(x+65, y+95); ctx.rotate(Math.PI);
+        ctx.textAlign = 'left'; ctx.font = 'bold 13px Pretendard'; ctx.fillText(label, 0, 0);
+        ctx.font = '11px serif'; ctx.fillText(s, 0, 13);
+        ctx.restore();
+    }
+
+    // --- [4. 이벤트 & 타이밍 로직] ---
+    function startDeal() {
+        if(Object.values(bets).reduce((a,b)=>a+b) === 0) return;
+        playSfx('deal'); gameState = 'deal1';
+        pCards = [randCard(), randCard()]; bCards = [randCard(), randCard()];
+        pSuits = [randSuit(), randSuit()]; bSuits = [randSuit(), randSuit()];
+        setTimeout(() => { gameState = 'deal2'; }, 1000);
+        setTimeout(() => { calculateResult(); }, 2000);
+    }
+
+    function calculateResult() {
+        const ps = bacScore(pCards), bs = bacScore(bCards);
+        let winType = (ps > bs) ? 'P' : (ps < bs) ? 'B' : 'T';
+        let payout = 0;
+        if(winType === 'P') payout += bets.P * 2;
+        if(winType === 'B') payout += bets.B * 1.95;
+        if(winType === 'T') payout += bets.T * 8;
+        if(pCards[0] === pCards[1]) payout += bets.PP * 11;
+        if(bCards[0] === bCards[1]) payout += bets.BP * 11;
+
+        if(payout > 0) {
+            playSfx('win');
+            winAnim.active = true; winAnim.timer = 60;
+            winAnim.cards = Array.from({length:5}, () => ({
+                idx: Math.floor(Math.random()*13),
+                x: Math.random()*280 + 40, y: 800,
+                vy: -(Math.random()*12 + 8), rot: (Math.random()-0.5)*0.3, angle: 0
+            }));
+        } else playSfx('lose');
+
+        myMoney += Math.floor(payout); cpuMoney -= Math.floor(payout);
+        msg = `P:${ps} vs B:${bs} - ${winType==='P'?'PLAYER':winType==='B'?'BANKER':'TIE'} WIN!`;
+        gameState = 'result';
+        if(cpuMoney <= 0) { gameState = 'levelup'; playSfx('levelup'); currentLevel++; cpuMoney = 50000000 * currentLevel; }
+    }
+
+    function handleInput(e) {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const touch = e.touches ? e.touches[0] : e;
+        const x = (touch.clientX - rect.left) * (360 / rect.width), y = (touch.clientY - rect.top) * (800 / rect.height);
+        if(gameState === 'levelup') { gameState = 'bet'; return; }
+        if(x > 250 && x < 330 && y > 15 && y < 95) { cheatCount++; if(cheatCount >= 10) { myMoney += 30000000; cheatCount = 0; playSfx('levelup'); } return; }
+        if(gameState === 'bet') {
+            if(y > 640 && y < 680) { const chips = [100000, 500000, 1000000, "ALL"]; chips.forEach((c, i) => { if(x > 12 + i*85 && x < 88 + i*85) { selChip = c; playSfx('chip'); } }); }
+            const amount = (selChip === "ALL") ? myMoney : selChip;
+            if(y > 220 && y < 340) { if(x > 20 && x < 175 && myMoney >= amount) { bets.P += amount; myMoney -= amount; playSfx('chip'); } if(x > 185 && x < 340 && myMoney >= amount) { bets.B += amount; myMoney -= amount; playSfx('chip'); }
+            } else if(y > 150 && y < 210) { if(x > 20 && x < 120 && myMoney >= amount) { bets.PP += amount; myMoney -= amount; playSfx('chip'); } if(x > 130 && x < 230 && myMoney >= amount) { bets.T += amount; myMoney -= amount; playSfx('chip'); } if(x > 240 && x < 340 && myMoney >= amount) { bets.BP += amount; myMoney -= amount; playSfx('chip'); } }
+            if(x > 20 && x < 55 && y > 565 && y < 600) { Object.keys(bets).forEach(k => { myMoney += bets[k]; bets[k] = 0; }); playSfx('btn'); }
+            if(x > 130 && x < 230 && y > 560 && y < 605) startDeal();
+        } else if(gameState === 'result') { if(x > 130 && x < 230 && y > 560 && y < 605) { gameState = 'bet'; bets = { P:0, B:0, T:0, PP:0, BP:0 }; msg = "베팅을 시작하세요"; playSfx('btn'); } }
+    }
+
+    function drawRect(x,y,w,h,c,r=0){ctx.fillStyle=c;ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill();}
+    function drawTxt(t,x,y,s,c,a='center'){ctx.fillStyle=c;ctx.font=`${s}px Pretendard`;ctx.textAlign=a;ctx.fillText(t,x,y);}
+    function varColor(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim();}
+
+    canvas.addEventListener('touchstart', handleInput);
+    canvas.addEventListener('mousedown', handleInput);
+    draw();
+</script>
+</body>
+</html>
