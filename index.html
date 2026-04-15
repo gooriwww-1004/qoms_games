@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ko">
+<script>
+
+// ===== [추가 변수] =====
+let dealerMsg = "";
+let revealPhase = 0;
+let finalWinEffect = false;
+
+
+// ===== [딜러 대화창] =====
+function renderDealerDialog() {
+    if(!dealerMsg) return;
+
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+
+    drawRect(30, 260, 300, 70, 'rgba(0,0,0,0.6)', 15);
+    ctx.strokeStyle = varColor('--noble-gold');
+    ctx.strokeRect(30, 260, 300, 70);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px Pretendard';
+
+    const lines = dealerMsg.split('\n');
+    lines.forEach((line, i)=>{
+        ctx.fillText(line, 40, 285 + (i*16));
+    });
+
+    ctx.restore();
+}
+
+
+// ===== [카드 점수 표시] =====
+function renderCardInfo() {
+    if(pCards.length === 0) return;
+
+    const ps = bacScore(pCards);
+    const bs = bacScore(bCards);
+
+    ctx.save();
+    ctx.globalAlpha = 0.8;
+
+    drawTxt(`P:${ps}`, 90, 150, 11, '#FFF');
+    drawTxt(`B:${bs}`, 270, 150, 11, '#FFF');
+
+    ctx.restore();
+}
+
+
+// ===== [마지막 카드 승리 효과] =====
+function renderFinalWinEffect() {
+    if(!finalWinEffect) return;
+
+    ctx.save();
+    ctx.globalAlpha = 0.7;
+
+    drawTxt("FINAL WIN", 180, 240, 18, varColor('--noble-gold'));
+
+    ctx.restore();
+}
+
+
+// ===== [딜러 멘트 생성] =====
+function setDealerMessage(winType, ps, bs) {
+    if(winType === 'P') {
+        dealerMsg = `플레이어에 베팅하셨군요.\n${ps}:${bs}로 승리했습니다`;
+    } 
+    else if(winType === 'B') {
+        dealerMsg = `뱅커 승리입니다.\n${bs}:${ps} 결과입니다`;
+    } 
+    else {
+        dealerMsg = `타이입니다.\n${ps}:${bs}`;
+    }
+
+    dealerMsg += `\n👉 NEXT 버튼으로 진행`;
+}
+
+
+// ===== [기존 renderCards 수정 ONLY] =====
+const originalRenderCards = renderCards;
+renderCards = function() {
+    pCards.forEach((c,i) => {
+        if(i === 2 && revealPhase === 1) {
+            drawCard(30 + i*32, 170, null, null);
+        } else {
+            drawCard(30 + i*32, 170, c, pSuits[i]);
+        }
+    });
+
+    bCards.forEach((c,i) => {
+        if(i === 2 && revealPhase === 1) {
+            drawCard(220 + i*32, 170, c, bSuits[i]);
+        } else {
+            drawCard(220 + i*32, 170, c, bSuits[i]);
+        }
+    });
+};
+
+
+// ===== [startDeal 일부 패치] =====
+const originalStartDeal = startDeal;
+startDeal = function() {
+
+    if(Object.values(bets).reduce((a,b)=>a+b) === 0) return;
+
+    playSfx('deal');
+    gameState = 'deal1';
+
+    pCards = [randCard(), randCard()];
+    bCards = [randCard(), randCard()];
+    pSuits = [randSuit(), randSuit()];
+    bSuits = [randSuit(), randSuit()];
+
+    setTimeout(() => {
+
+        let ps = bacScore(pCards), bs = bacScore(bCards);
+
+        if (ps <= 5) {
+            let p3 = randCard();
+            revealPhase = 1;
+
+            setTimeout(()=>{
+                pCards.push(p3);
+                pSuits.push(randSuit());
+                revealPhase = 2;
+            }, 700);
+        }
+
+        setTimeout(() => {
+
+            if (bs <= 5) {
+                bCards.push(randCard());
+                bSuits.push(randSuit());
+            }
+
+            calculateResult();
+
+        }, 1200);
+
+    }, 600);
+};
+
+
+// ===== [calculateResult 패치] =====
+const originalCalc = calculateResult;
+calculateResult = function() {
+
+    const ps = bacScore(pCards), bs = bacScore(bCards);
+    let winType = (ps > bs) ? 'P' : (ps < bs) ? 'B' : 'T';
+
+    originalCalc();
+
+    setDealerMessage(winType, ps, bs);
+
+    if((pCards.length === 3 || bCards.length === 3) && winType !== 'T') {
+        finalWinEffect = true;
+        setTimeout(()=> finalWinEffect = false, 1000);
+    }
+};
+
+
+// ===== [draw 함수에 추가] =====
+const originalDraw = draw;
+draw = function() {
+    originalDraw();
+
+    if(gameState !== 'bet') renderCardInfo();
+    renderDealerDialog();
+    renderFinalWinEffect();
+};
+
+
+// ===== [HUD 얼굴만 확대 (안전 수정)] =====
+const originalHUD = renderHUD;
+renderHUD = function() {
+    originalHUD();
+
+    const araFace = assets.imgs[`level_${currentLevel}`];
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(290, 60, 40, 0, Math.PI*2);
+    ctx.clip();
+    if(araFace && araFace.complete){
+        ctx.drawImage(araFace, 250, 20, 80, 80);
+    }
+    ctx.restore();
+};
+
+</script>
+</body>
+</html>
